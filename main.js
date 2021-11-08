@@ -1,52 +1,54 @@
-import connection from './database.js';
-import { ObjectId } from 'mongodb';
+// import database from './database.js';
+import { MongoClient, ObjectId } from 'mongodb';
+import config from './config.js';
 
+const users = ['Herminia', 'Bertoldo', 'Aniceto','Godofredo'];
 
-const users = ['Herminia', 'Bertoldo', 'Aniceto'];
+const transaction = async () => {
 
-const transaction = async ()=> {
+    const client = new MongoClient(config.urlDataBase, {useNewUrlParser: true});
+    await client.connect();
 
-    const session = connection.client.startSession();
-    await session.startSession();
-
+    const session = await client.startSession();
+    
     try {
-       
-        users.forEach((user) => {
-            const objId = new ObjectId();
+        // await session.startTransaction();
 
-            await connection.db.collection('users').insertOne({
-                _id: objId,
-                nombre: user
-            }, {session});
-            await connection.db.collection('sesiones').findOneAndUpdate(
-                {nombre: user},
-                {$set:{userId:objId}},
-                {$unset:{nombre:""}},
-                {session}
-            )
-            await connection.db.collection('gustos').findOneAndUpdate(
-                {nombre: user},
-                {$set: {usuarioId: objId}},
-                {$unset:{nombre:""}},
-                {session}
-            )
+        await session.withTransaction(async () => {
 
+            for(const user of users) {
+                const objectId = new ObjectId();
+                const db = client.db('running');
+                console.log(session);
+                // await db.createCollection('usuarios', { session });
+                await db.collection('usuarios').insertOne({
+                    _id: objectId,
+                    nombre: user
+                }, { session });
+                await db.collection('sesiones').findOneAndUpdate(
+                    { nombre: user },
+                    [{ $set: { usuarioId: objectId } },
+                    { $unset: "nombre" }],
+                    { session }
+                );
+                await db.collection('gustos').findOneAndUpdate(
+                    { nombre: user },
+                    [{ $set: { usuarioId: objectId } },
+                    { $unset: "nombre" }],
+                    { session }
+                )
+
+                // await session.commitTransaction();
+            }
         })
 
-        await session.commitTransaction();
-        return {"result": "ok"};
-
-    } catch (error) {
-
-        await session.abortTransaction();
-        throw error;
-
-    } finally {
-
-        await session.endSession();
-        connection.close();
-
     }
+     finally {
+        await session.endSession();
+        await client.close();
+    }
+
 }
-transaction().then(console.log)
-             .catch(console.error);
+
+transaction().then(_ => console.log("ok"))
+    .catch(console.error);
